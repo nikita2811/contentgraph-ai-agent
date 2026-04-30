@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    container_name: ai-pipeline-api
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env # loads all your API keys
+    volumes:
+      - .:/app # hot reload in dev
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3

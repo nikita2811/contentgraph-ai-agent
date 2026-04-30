@@ -1,0 +1,12 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-dotenv>=1.0.0
+google-generativeai>=0.5.0
+pydantic>=2.0.0
+langchain
+langchain[google-genai]
+langchain-google-genai
+tavily-python
+langgraph
+keybert
+google-search-results>=2.4.2   # SerpAPI SDK
