@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from .agentstate import run_pipeline
+from app.agentstate import run_pipeline
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
