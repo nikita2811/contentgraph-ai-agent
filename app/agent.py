@@ -1,4 +1,3 @@
-from langchain.agents import initialize_agent,AgentType
 from langchain_google_genai import ChatGoogleGenerativeAI
 from .tools import tavily_tool,serp_search,analyze_product_serp
 import os
