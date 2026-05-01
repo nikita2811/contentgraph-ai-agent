@@ -10,3 +10,4 @@ tavily-python
 langgraph
 keybert
 google-search-results>=2.4.2   # SerpAPI SDK
+langchain-community
