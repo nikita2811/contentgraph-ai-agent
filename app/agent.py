@@ -3,10 +3,13 @@ from .tools import tavily_tool,serp_search,analyze_product_serp
 import os
 import asyncio
 from langgraph.prebuilt import create_react_agent
+from dotenv import load_dotenv
+load_dotenv()
+
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash-lite",
-    google_api_key="AIzaSyCRXpaj1oOvEqNWJhDqc0olL7xvCqZcb1w",
+    google_api_key=os.getenv("GOOGLE_API_KEY"),
     temperature=0
 )
 
