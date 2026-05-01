@@ -18,7 +18,7 @@ llm = ChatGoogleGenerativeAI(
 research_agent = create_react_agent(
     model=llm,
     tools=[tavily_tool],
-    state_modifier=(
+    system_prompt=(
         "You are an expert research analyst. "
         "Your job is to deeply research a given topic using Tavily. "
         "Collect facts, statistics, authoritative sources, and key insights. "
@@ -30,7 +30,7 @@ research_agent = create_react_agent(
 serp_agent = create_react_agent(
     model=llm,
     tools=[serp_search, analyze_product_serp],
-    state_modifier=(
+    system_prompt=(
         "You are an SEO and SERP analysis expert. "
         "Given a topic, analyse: top-ranking pages, featured snippets, "
         "People Also Ask questions, common heading patterns, and content gaps. "
@@ -43,7 +43,7 @@ serp_agent = create_react_agent(
 writer_agent = create_react_agent(
     model=llm,
     tools=[],          # pure generation — no tools needed
-    state_modifier=(
+    system_prompt=(
         "You are a world-class SEO content writer. "
         "You receive a research brief and a SERP analysis brief. "
         "Write a comprehensive, engaging, SEO-optimised article that: "
