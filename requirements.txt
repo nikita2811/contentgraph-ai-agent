@@ -7,7 +7,7 @@ langchain
 langchain[google-genai]
 langchain-google-genai
 tavily-python
-langgraph
+langgraph==0.2.28
 keybert
 google-search-results>=2.4.2   # SerpAPI SDK
 langchain-community
