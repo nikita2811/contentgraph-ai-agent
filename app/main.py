@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException,Depends,Header
-from .agentstate import run_pipeline
+from .agentstate import build_pipeline
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -63,7 +63,7 @@ async def generate(req:ProductRequest):
       #   }
          product_details=req.model_dump()
     
-         result = run_pipeline(product_details)
+         result = build_pipeline(product_details)
  
          return PipelineResponse(
             product_name  = product_details.get('product_name',""),
