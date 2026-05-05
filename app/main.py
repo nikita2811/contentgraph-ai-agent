@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import traceback
-import os
 from auth.jwt_verify import verify_service_token
 
 app = FastAPI(
@@ -48,11 +47,9 @@ def health_check():
     return {"status": "healthy", "version": "1.0.0"}
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
 
-@app.post("/api/v1/generate", dependencies=[Depends(verify_service_token)])
+
+@app.post("/generate", dependencies=[Depends(verify_service_token)])
 async def generate(req:ProductRequest):
    
      try:
