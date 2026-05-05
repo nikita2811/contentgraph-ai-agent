@@ -3,15 +3,16 @@ uvicorn[standard]>=0.29.0
 python-dotenv>=1.0.0
 google-generativeai>=0.5.0
 pydantic>=2.0.0
-langchain
-langchain[google-genai]
-langchain-google-genai
+langchain>=1.0.0
+langchain[google-genai]>=1.0.0
+langchain-google-genai>=2.0.0
+langchain-community>=0.3.0
+langchain-core>=1.2.11
+langgraph>=0.2.60
+langchain-tavily>=0.2.18
 tavily-python>=0.7.24
-langgraph==0.2.28
 keybert
-google-search-results>=2.4.2   # SerpAPI SDK
-langchain-community
+google-search-results>=2.4.2
 pyjwt
 cryptography
 python-jose
-langchain-tavily>=0.2.18
