@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException
-from app.agentstate import run_pipeline
+from fastapi import FastAPI, HTTPException,Depends,Header
+from .agentstate import run_pipeline
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import traceback
+from auth.jwt_verify import verify_service_token
 
 app = FastAPI(
     title="AI Content Pipeline",
@@ -18,7 +19,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+
+
 # ── Models ────────────────────────────────────────────────
+
+class ProductRequest(BaseModel):
+    product_name:str
+    key_features: list[str]
+    category:str
+    tone: str = "professional"
+    target_audience: str = ""
 
 
 class PipelineResponse(BaseModel):
@@ -36,8 +47,10 @@ def health_check():
     return {"status": "healthy", "version": "1.0.0"}
 
 
-@app.post("/generate",response_model=PipelineResponse)
-async def generate(product_details):
+
+
+@app.post("/generate", dependencies=[Depends(verify_service_token)])
+async def generate(req:ProductRequest):
    
      try:
         # 2. Prepare the initial state
@@ -48,6 +61,7 @@ async def generate(product_details):
       #       "key_features": ["comfortable"],
       #       "tone": "professional"
       #   }
+         product_details=req.model_dump()
     
          result = run_pipeline(product_details)
  

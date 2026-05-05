@@ -1,12 +1,12 @@
 from langchain_core.tools import tool
-from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.utilities import SerpAPIWrapper
 import json
+from langchain_tavily import TavilySearch
 from dotenv import load_dotenv
 load_dotenv()
 
 # --- Tavily research tool ---
-tavily_tool = TavilySearchResults(
+tavily_tool = TavilySearch(
     max_results=5,
     search_depth="advanced",
     include_answer=True,
