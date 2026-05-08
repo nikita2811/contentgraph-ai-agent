@@ -19,7 +19,8 @@ class AgentState(TypedDict):
     category:        str
     target_audience: str
     key_features:    List[str]
-    tone:            str
+    tone:           str 
+    regenerate: bool  
 
         # Outputs
     research_output: Optional[str]
@@ -56,9 +57,10 @@ def run_research(state: AgentState) -> AgentState:
     - Industry keywords and terminology
     - Trending features in this category
     """.strip()
-    # ✅ Add this back
-    cached, cache_key = get_node_cache("research", prompt)
-    if cached:
+    if not state.get("regenerate"):  # ✅ skip node cache if regenerating
+     cached, cache_key = get_node_cache("research", prompt)
+    
+     if cached:
         return {
             **state,
             "research_output": cached["output"],
@@ -109,8 +111,9 @@ def run_serp_analysis(state: AgentState) -> AgentState:
         f"Research brief: {state.get('research_output', '')[:500]}"
     )
      # ── Check node cache ───────────────────────────────────
-    cached, cache_key = get_node_cache("serp", prompt)
-    if cached:
+    if not state.get("regenerate"): 
+     cached, cache_key = get_node_cache("serp", prompt)
+     if cached:
         return {
             **state,
             "serp_output":  cached["output"],
@@ -159,8 +162,9 @@ def run_writer(state: AgentState) -> AgentState:
     {json.dumps(state.get('serp_output', {}), indent=2)}
     """.strip()
     # ── Check node cache ───────────────────────────────────
-    cached, cache_key = get_node_cache("writer", prompt)
-    if cached:
+    if not state.get("regenerate"): 
+     cached, cache_key = get_node_cache("writer", prompt)
+     if cached:
         return {
             **state,
             "content_output": cached["output"],
@@ -245,15 +249,26 @@ def build_pipeline() -> StateGraph:
 
     return graph.compile()
 
-def run_pipeline(product_details:dict) -> dict:
+def run_pipeline(product_details:dict,regenerate:bool=False) -> dict:
     """Run the full 3-agent pipeline for a given topic."""
 
     # ── 1. Check pipeline cache first ─────────────────────
-    cached, pipe_key = get_pipeline_cache(product_details)
-    if cached:
-        return cached  # ⚡ entire pipeline skipped
+   
+
+    if not regenerate:
+        cached, pipe_key = get_pipeline_cache(product_details)
+        if cached:
+            print("⚡ Pipeline cache HIT")
+            return cached
+    else:
+        print("🔄 Regenerate requested — skipping cache")
+        _, pipe_key = get_pipeline_cache(product_details)  # just get the key
+
+
+    # ✅ pipeline always defined here — outside both branches
     pipeline = build_pipeline()
 
+    
      # ── All keys must be initialised ─────────────────────
     initial_state: AgentState = {
         # Inputs
@@ -262,13 +277,14 @@ def run_pipeline(product_details:dict) -> dict:
         "target_audience": str(product_details.get("target_audience", "")),
         "key_features":    product_details.get("key_features", []),
         "tone":            product_details.get("tone", "professional"),
+        "regenerate":      regenerate,
          "research_output":None,
-         "serp_output":None,
-         "content_output":None,
+         "serp_output":    None,
+         "content_output": None,
         # Control
-        "messages":     [],
-        "current_step": "research",
-        "error":        None,
+        "messages":        [],
+        "current_step":    "research",
+        "error":           None,
     }
  
    

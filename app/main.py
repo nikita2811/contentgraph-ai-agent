@@ -34,6 +34,7 @@ class ProductRequest(BaseModel):
     category:        str
     tone:            str = "professional"
     target_audience: str = ""
+    regenerate:      bool = False  # ✅ new field
 
 
 class PipelineResponse(BaseModel):
