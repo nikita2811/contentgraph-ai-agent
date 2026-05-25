@@ -15,6 +15,7 @@ from .agentstate import run_pipeline
 from app.auth.jwt_verify import verify_service_token
 from .cache import init_llm_cache
 
+
 app = FastAPI(
     title="AI Content Pipeline",
     version="1.0.0",
@@ -58,7 +59,8 @@ async def generate(req: ProductRequest):
     product_details = req.model_dump()
 
     try:
-        result = run_pipeline(product_details)
+        result = await run_pipeline(product_details)
+        
 
         return JSONResponse(content={
             "product_name":  product_details.get("product_name", ""),
