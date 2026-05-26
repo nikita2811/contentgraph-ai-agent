@@ -1,16 +1,16 @@
-# agentstate.py
 from typing import TypedDict, List, Optional, Annotated
 import operator
 import json
-import asyncio
 import httpx
 
 from langgraph.graph import StateGraph, END
 from langgraph.types import RetryPolicy
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from langchain_core.exceptions import LangChainException
+from langchain_core.runnables import RunnableConfig
+from langsmith import traceable
 
-# ✅ import the async helpers, not the raw agents
+# ✅ import the async helpers from agent.py
 from .agent import run_research_agent, run_serp_agent, run_writer_agent
 from .cache import (
     get_node_cache, set_node_cache,
@@ -42,6 +42,10 @@ class AgentState(TypedDict):
 
 # ── Node 1: Research ──────────────────────────────────────────────────────────
 
+@traceable(
+    name="research_node",
+    metadata={"pipeline": "contentgraph", "node": "research"},
+)
 async def run_research(state: AgentState) -> AgentState:
     """Node 1 — Deep research via Tavily."""
     print("\n🔍 [Research Agent] Starting...")
@@ -85,7 +89,6 @@ async def run_research(state: AgentState) -> AgentState:
         _, cache_key = get_node_cache("research", prompt)  # key only, no hit
 
     try:
-        # ✅ async call via helper from agents.py
         output = await run_research_agent(product_details)
         print(f"✅ Research complete ({len(output)} chars)")
 
@@ -112,6 +115,10 @@ async def run_research(state: AgentState) -> AgentState:
 
 # ── Node 2: SERP Analysis ─────────────────────────────────────────────────────
 
+@traceable(
+    name="serp_node",
+    metadata={"pipeline": "contentgraph", "node": "serp"},
+)
 async def run_serp_analysis(state: AgentState) -> AgentState:
     """Node 2 — SERP analysis via SerpAPI + Tavily."""
     print("\n📊 [SERP Agent] Starting...")
@@ -137,7 +144,6 @@ async def run_serp_analysis(state: AgentState) -> AgentState:
         _, cache_key = get_node_cache("serp", prompt)
 
     try:
-        # ✅ async call — returns parsed dict via _safe_parse_json in agents.py
         product_details = {
             "product_name": state["product_name"],
             "category":     state["category"],
@@ -169,6 +175,10 @@ async def run_serp_analysis(state: AgentState) -> AgentState:
 
 # ── Node 3: Writer ────────────────────────────────────────────────────────────
 
+@traceable(
+    name="writer_node",
+    metadata={"pipeline": "contentgraph", "node": "writer"},
+)
 async def run_writer(state: AgentState) -> AgentState:
     """Node 3 — Content generation."""
     print("\n✍️  [Writer Agent] Starting...")
@@ -208,7 +218,6 @@ async def run_writer(state: AgentState) -> AgentState:
             "key_features":    state["key_features"],
             "tone":            state["tone"],
         }
-        # ✅ async call — returns parsed dict
         output = await run_writer_agent(
             serp_output=state.get("serp_output", {}),
             product_details=product_details,
@@ -260,9 +269,9 @@ def build_pipeline() -> StateGraph:
 
     graph = StateGraph(AgentState)
 
-    graph.add_node("research",     run_research,     retry=retry_policy)
+    graph.add_node("research",      run_research,      retry=retry_policy)
     graph.add_node("serp_analysis", run_serp_analysis, retry=retry_policy)
-    graph.add_node("writer",       run_writer,       retry=retry_policy)
+    graph.add_node("writer",        run_writer,        retry=retry_policy)
 
     graph.set_entry_point("research")
 
@@ -315,11 +324,19 @@ async def run_pipeline(product_details: dict) -> dict:
         "error":           None,
     }
 
+    config = RunnableConfig(
+        tags=["contentgraph", product_details.get("category", "unknown")],
+        metadata={
+            "product_name": product_details.get("product_name"),
+            "tone":         product_details.get("tone"),
+        },
+        run_name=f"pipeline:{product_details.get('product_name', 'unknown')}",
+    )
+
     print(f"\n🚀 Pipeline starting for: '{initial_state['product_name']}'")
     print("=" * 60)
 
-    # ✅ ainvoke — non-blocking, works with async nodes
-    final_state = await pipeline.ainvoke(initial_state)
+    final_state = await pipeline.ainvoke(initial_state, config)
 
     if not final_state.get("error"):
         set_pipeline_cache(pipe_key, final_state)
