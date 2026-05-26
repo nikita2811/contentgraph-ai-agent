@@ -16,6 +16,7 @@ from .cache import (
     get_node_cache, set_node_cache,
     get_pipeline_cache, set_pipeline_cache,
 )
+from .memory.research_cache import get_similar_research, store_research
 
 
 # ── State ─────────────────────────────────────────────────────────────────────
@@ -57,6 +58,7 @@ async def run_research(state: AgentState) -> AgentState:
         "key_features":    state["key_features"],
         "tone":            state["tone"],
     }
+    
 
     prompt = (
         f"Research this product thoroughly for generating an eCommerce description.\n"
@@ -127,6 +129,24 @@ async def run_serp_analysis(state: AgentState) -> AgentState:
         f"Analyse the product SERP for: '{state['product_name']} {state['category']}'. "
         f"Research brief: {(state.get('research_output') or '')[:500]}"
     )
+      # ── 1. Upstash Vector — semantic similarity check ─────
+    product_details = {
+        "product_name":    state["product_name"],
+        "category":        state["category"],
+        "key_features":    state["key_features"],
+        "target_audience": state["target_audience"],
+        "tone":            state["tone"],
+    }
+    if not state.get("regenerate"):
+        similar = get_similar_research(product_details)
+        if similar:
+            return {
+                **state,
+                "serp_output":  similar,
+                "current_step": "writing",
+                "error":        None,
+                "messages":     [AIMessage(content=f"[SERP Agent - vector cache]\n{json.dumps(similar)}")],
+            }
 
     # ── Cache check ───────────────────────────────────────
     if not state.get("regenerate"):
