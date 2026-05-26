@@ -217,9 +217,9 @@ Intentionally open for development. In production, replace with specific allowed
 
 - [ ] LangSmith tracing for per-node token usage and latency
 - [ ] deepeval evaluation suite (faithfulness, relevance, keyword coverage)
-  Async pipeline execution to unblock FastAPI workers
+- Async pipeline execution to unblock FastAPI workers
 - [ ] Streaming response endpoint (`/generate/stream`)
-Research memory cache — store high-scoring SERP results in a vector DB to reduce redundant Tavily calls
+- Research memory cache — store high-scoring SERP results in a vector DB to reduce redundant Tavily calls
 - [ ] GitHub Actions CI with eval regression tests
 
 ---
