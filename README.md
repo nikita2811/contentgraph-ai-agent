@@ -214,12 +214,10 @@ Intentionally open for development. In production, replace with specific allowed
 ---
 
 ## Roadmap
-
-- [ ] LangSmith tracing for per-node token usage and latency
+- LangSmith tracing for per-node token usage and latency
 - [ ] deepeval evaluation suite (faithfulness, relevance, keyword coverage)
-- [done] Async pipeline execution to unblock FastAPI workers
-- [ ] Streaming response endpoint (`/generate/stream`)
-- [ ] Research memory cache — store high-scoring SERP results in a vector DB to reduce redundant Tavily calls
+- Async pipeline execution to unblock FastAPI workers
+- Research memory cache — store high-scoring SERP results in a vector DB to reduce redundant Tavily calls
 - [ ] GitHub Actions CI with eval regression tests
 
 ---
