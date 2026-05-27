@@ -28,3 +28,5 @@ python-jose[cryptography]>=3.3.0
 upstash-vector
 deepeval
 pytest
+torch>=2.0.0
+transformers>=4.40.0

@@ -44,6 +44,7 @@ class PipelineResponse(BaseModel):
     final_content: Optional[str]
     serp:          Optional[str]
     status:        str
+    token_usage:   Optional[dict] = None
 
 
 # ── Init cache once at startup ─────────────────────────────
@@ -60,19 +61,34 @@ async def generate(req: ProductRequest):
     product_details = req.model_dump()
 
     try:
-        result = await run_pipeline(product_details)
         token_callback = TokenUsageCallback()
+        result = await run_pipeline(product_details,callbacks=[token_callback])
+       
+        content = result.get("content_output") or ""
+        serp = result.get("serp_output") or ""
 
         return JSONResponse(content={
             "product_name":  product_details.get("product_name", ""),
-            "final_content": result.get("content_output") or "",
-            "serp":          result.get("serp_output") or "",
+            "final_content": content if isinstance(content, str) else json.dumps(content),
+            "serp":          serp if isinstance(serp, str) else json.dumps(serp),
             "status":        "success",
-            "callbacks":[token_callback],
+           
+            "token_usage": {
+              "prompt_tokens":     token_callback.prompt_tokens,
+              "completion_tokens": token_callback.completion_tokens,
+              "total_tokens":      token_callback.total_tokens,
+              "model_name":        token_callback.model_name,
+            }
         })
+
 
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail={"error": str(e)}  # ✅ never expose traceback to clients
+             detail={
+                "error": str(e),
+                "type": type(e).__name__,
+                "traceback": traceback.format_exc(),  # ← full traceback in response
+            }
+            # detail={"error": str(e)}  # ✅ never expose traceback to clients
         )

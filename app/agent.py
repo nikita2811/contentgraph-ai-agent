@@ -13,7 +13,7 @@ load_dotenv()
 
 def _build_llm() -> ChatGoogleGenerativeAI:
     api_key = os.getenv("GOOGLE_API_KEY")
-    model   = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    model   = os.getenv("gemini-1.5-flash")
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY is not set")
     return ChatGoogleGenerativeAI(
