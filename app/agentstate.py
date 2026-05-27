@@ -147,6 +147,9 @@ async def run_serp_analysis(state: AgentState) -> AgentState:
                 "error":        None,
                 "messages":     [AIMessage(content=f"[SERP Agent - vector cache]\n{json.dumps(similar)}")],
             }
+    
+    
+   
 
     # ── Cache check ───────────────────────────────────────
     if not state.get("regenerate"):
@@ -172,6 +175,8 @@ async def run_serp_analysis(state: AgentState) -> AgentState:
             research_output=state.get("research_output", ""),
             product_details=product_details,
         )
+        # ── 4. Store to vector DB ─────────────────────────
+        await store_serp_to_vector(product_details, output)
 
         set_node_cache(cache_key, {"output": output}, ttl=3600)
 
@@ -191,6 +196,17 @@ async def run_serp_analysis(state: AgentState) -> AgentState:
             "error":        str(e),
             "messages":     [],
         }
+    
+async def store_serp_to_vector(product_details: dict, output: dict):
+    """Store SERP output to vector DB for future similarity checks."""
+    try:
+        store_research(
+            product_details=product_details,
+            serp_results=output,  # tag it so you know it came from serp node
+        )
+        print("✅ [SERP Agent] Stored to vector DB")
+    except Exception as e:
+        print(f"⚠️ [SERP Agent] Vector store failed (non-critical): {e}")
 
 
 # ── Node 3: Writer ────────────────────────────────────────────────────────────

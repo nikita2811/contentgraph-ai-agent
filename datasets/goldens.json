@@ -1,0 +1,97 @@
+[
+    {
+        "id": "rag_001",
+        "input": "What is the capital of France and what is it known for?",
+        "expected_output": "Paris is the capital of France. It is known for landmarks like the Eiffel Tower, the Louvre museum, and its rich history in art, fashion, and cuisine.",
+        "retrieval_context": [
+            "Paris is the capital and most populous city of France.",
+            "Paris is famous for the Eiffel Tower, a wrought-iron lattice tower built in 1889.",
+            "The Louvre in Paris is the world's largest art museum, home to the Mona Lisa.",
+            "Paris has long been a global centre for art, fashion, gastronomy and culture."
+        ],
+        "keywords": [
+            "Paris",
+            "capital",
+            "Eiffel Tower",
+            "Louvre",
+            "France"
+        ]
+    },
+    {
+        "id": "rag_002",
+        "input": "How does photosynthesis work?",
+        "expected_output": "Photosynthesis is the process by which plants use sunlight, water, and carbon dioxide to produce oxygen and energy in the form of glucose. It occurs in the chloroplasts, using chlorophyll to capture light energy.",
+        "retrieval_context": [
+            "Photosynthesis is a process used by plants and other organisms to convert light energy into chemical energy.",
+            "During photosynthesis, plants absorb carbon dioxide from the air and water from the soil.",
+            "Chlorophyll, the green pigment in plant leaves, captures sunlight to drive the photosynthesis reaction.",
+            "The overall equation for photosynthesis: 6CO2 + 6H2O + light → C6H12O6 + 6O2"
+        ],
+        "keywords": [
+            "photosynthesis",
+            "sunlight",
+            "chlorophyll",
+            "glucose",
+            "oxygen",
+            "carbon dioxide"
+        ]
+    },
+    {
+        "id": "rag_003",
+        "input": "What are the main causes of the French Revolution?",
+        "expected_output": "The French Revolution was caused by a combination of social inequality, financial crisis, and Enlightenment ideas. The burden of taxation on the poor, food shortages, and resentment toward absolute monarchy all contributed.",
+        "retrieval_context": [
+            "The French Revolution began in 1789 and was driven by widespread discontent with the monarchy and aristocracy.",
+            "Financial crisis: France was nearly bankrupt after costly wars, including support for the American Revolution.",
+            "Social inequality was extreme; the Third Estate (commoners) bore most of the tax burden while nobles were exempt.",
+            "Enlightenment philosophers like Rousseau and Voltaire had spread ideas of liberty, equality, and popular sovereignty.",
+            "Food shortages and rising bread prices caused widespread suffering among the urban poor in 1788–1789."
+        ],
+        "keywords": [
+            "French Revolution",
+            "inequality",
+            "taxation",
+            "Enlightenment",
+            "monarchy",
+            "financial crisis"
+        ]
+    },
+    {
+        "id": "rag_004",
+        "input": "Explain the concept of recursion in programming.",
+        "expected_output": "Recursion is a programming technique where a function calls itself to solve smaller instances of the same problem. Every recursive function needs a base case to stop the recursion and avoid infinite loops.",
+        "retrieval_context": [
+            "Recursion in computer science is a method where the solution to a problem depends on solutions to smaller instances of the same problem.",
+            "A recursive function calls itself with modified arguments until it reaches a base case.",
+            "The base case is the condition under which the recursive function stops calling itself.",
+            "Classic examples of recursion include computing factorials, Fibonacci numbers, and tree traversal."
+        ],
+        "keywords": [
+            "recursion",
+            "function",
+            "base case",
+            "calls itself",
+            "programming"
+        ]
+    },
+    {
+        "id": "rag_005",
+        "input": "What is transformer architecture in machine learning?",
+        "expected_output": "The transformer is a deep learning architecture introduced in the paper 'Attention is All You Need' (2017). It relies on a self-attention mechanism to process sequences in parallel, enabling it to capture long-range dependencies better than RNNs.",
+        "retrieval_context": [
+            "The Transformer architecture was introduced by Vaswani et al. in 2017 in the paper 'Attention is All You Need'.",
+            "Unlike RNNs, transformers process entire sequences simultaneously using self-attention mechanisms.",
+            "Self-attention allows transformers to weigh the relevance of each token in a sequence relative to all others.",
+            "Transformers consist of encoder and decoder stacks, each containing multi-head attention and feed-forward layers.",
+            "BERT, GPT, and T5 are all based on the transformer architecture."
+        ],
+        "keywords": [
+            "transformer",
+            "self-attention",
+            "Attention is All You Need",
+            "encoder",
+            "decoder",
+            "machine learning"
+        ]
+    }
+]

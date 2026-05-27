@@ -1,0 +1,163 @@
+name: Eval regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Run nightly to catch model-drift regressions even without code changes
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      update_baseline:
+        description: "Update score baseline after this run"
+        type: boolean
+        default: false
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ─────────────────────────────────────────────────────────
+  # 1. Fast unit tests — no API key needed
+  # ─────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit tests (no LLM)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run keyword coverage unit tests
+        run: |
+          pytest evals/test_rag.py::TestKeywordCoverage -v \
+            --tb=short \
+            --no-header
+
+  # ─────────────────────────────────────────────────────────
+  # 2. Full eval suite — requires API key
+  # ─────────────────────────────────────────────────────────
+  eval-suite:
+    name: Eval suite (LLM judge)
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    # Skip on forks that won't have the secret
+    if: >
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run evaluation suite
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Override thresholds for CI (slightly more lenient than prod)
+          FAITHFULNESS_THRESHOLD: "0.65"
+          RELEVANCY_THRESHOLD: "0.65"
+          KEYWORD_THRESHOLD: "0.70"
+        run: |
+          pytest evals/test_rag.py -v \
+            --tb=short \
+            --no-header \
+            -p no:warnings \
+            --junit-xml=reports/junit.xml
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-report
+          path: reports/junit.xml
+
+      - name: Upload scores
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scores-latest
+          path: evals/scores_latest.json
+
+  # ─────────────────────────────────────────────────────────
+  # 3. Regression guard — compare scores to baseline
+  # ─────────────────────────────────────────────────────────
+  regression-guard:
+    name: Regression guard
+    runs-on: ubuntu-latest
+    needs: eval-suite
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download scores artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: scores-latest
+          path: evals/
+
+      - name: Check for regression
+        run: |
+          python evals/regression_guard.py \
+            --scores evals/scores_latest.json \
+            ${{ github.event.inputs.update_baseline == 'true' && '--update-baseline' || '' }}
+
+      - name: Commit updated baseline
+        if: >
+          github.event.inputs.update_baseline == 'true' &&
+          github.ref == 'refs/heads/main'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scores_baseline.json
+          git diff --staged --quiet || git commit -m "chore: update eval score baseline [skip ci]"
+          git push
+
+      - name: Annotate PR with score summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const scores = JSON.parse(fs.readFileSync('evals/scores_latest.json', 'utf8'));
+            const rows = Object.entries(scores)
+              .map(([m, s]) => `| ${m} | ${s.mean.toFixed(3)} | ${s.min.toFixed(3)} | ${(s.pass_rate*100).toFixed(0)}% |`)
+              .join('\n');
+            const body = [
+              '## 📊 Eval scores',
+              '',
+              '| Metric | Mean | Min | Pass rate |',
+              '|--------|------|-----|-----------|',
+              rows,
+              '',
+              '_Scores collected by DeepEval on this PR\'s pipeline output._'
+            ].join('\n');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });

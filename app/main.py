@@ -14,6 +14,7 @@ import json
 from .agentstate import run_pipeline
 from app.auth.jwt_verify import verify_service_token
 from .cache import init_llm_cache
+from .token_usage import TokenUsageCallback
 
 
 app = FastAPI(
@@ -60,13 +61,14 @@ async def generate(req: ProductRequest):
 
     try:
         result = await run_pipeline(product_details)
-        
+        token_callback = TokenUsageCallback()
 
         return JSONResponse(content={
             "product_name":  product_details.get("product_name", ""),
             "final_content": result.get("content_output") or "",
             "serp":          result.get("serp_output") or "",
             "status":        "success",
+            "callbacks":[token_callback],
         })
 
     except Exception as e:

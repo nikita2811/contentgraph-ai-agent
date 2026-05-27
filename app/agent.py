@@ -135,7 +135,8 @@ async def run_serp_agent(research_output: str, product_details: dict) -> dict:
     try:
         response = await serp_agent.ainvoke({"messages": [HumanMessage(content=payload)]})
         raw      = response["messages"][-1].content
-        return _safe_parse_json(raw, agent="serp_agent")
+        return raw
+        # return _safe_parse_json(raw, agent="serp_agent")
     except Exception as e:
         raise RuntimeError(f"SERP agent failed: {e}") from e
 
@@ -149,6 +150,7 @@ async def run_writer_agent(serp_output: dict, product_details: dict) -> dict:
     try:
         response = await writer_agent.ainvoke({"messages": [HumanMessage(content=payload)]})
         raw      = response["messages"][-1].content
-        return _safe_parse_json(raw, agent="writer_agent")
+        return raw
+        # return _safe_parse_json(raw, agent="writer_agent")
     except Exception as e:
         raise RuntimeError(f"Writer agent failed: {e}") from e
