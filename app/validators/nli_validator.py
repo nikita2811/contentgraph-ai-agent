@@ -2,17 +2,26 @@ from transformers import pipeline
 from functools import lru_cache
 from typing import Literal
 import logging
+from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
+import torch
 
 logger = logging.getLogger(__name__)
 
 @lru_cache(maxsize=1)
 def _load_nli_pipeline():
     """Load once, reuse across requests. Cached at module level."""
+    tokenizer = AutoTokenizer.from_pretrained("cross-encoder/nli-deberta-v3-small")
+    model = AutoModelForSequenceClassification.from_pretrained(
+    "cross-encoder/nli-deberta-v3-small",
+    torch_dtype=torch.float16,  # half precision, ~2x memory saving
+)
     return pipeline(
-        "zero-shot-classification",
-        model="cross-encoder/nli-deberta-v3-small",  # ~180MB, fast
-        device=-1,  # CPU; set to 0 for GPU
+    "zero-shot-classification",
+    model=model,
+    tokenizer=tokenizer,
+    device=-1,
     )
+  
 
 Label = Literal["entailment", "neutral", "contradiction"]
 
