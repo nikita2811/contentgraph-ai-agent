@@ -5,7 +5,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 from dotenv import load_dotenv
 from .tools import tavily_tool, serp_search, analyze_product_serp
-
+from langchain_core.runnables import RunnableConfig
 load_dotenv()
 
 
@@ -20,6 +20,7 @@ def _build_llm() -> ChatGoogleGenerativeAI:
         model=model,
         google_api_key=api_key,
         temperature=0,
+        streaming=False,
     )
 
 llm = _build_llm()
@@ -116,41 +117,72 @@ def _safe_parse_json(raw: str, agent: str) -> dict:
 
 # ── Async helpers (imported by agentstate.py) ─────────────────────────────────
 
-async def run_research_agent(product_details: dict) -> str:
-    """Returns raw text output from the research agent."""
+# agent.py
+
+
+  # ── Usage extractor ───────────────────────────────────────────────────────────
+
+def _extract_usage_from_messages(messages: list) -> dict:
+    prompt_tokens     = 0
+    completion_tokens = 0
+    total_tokens      = 0
+
+    for msg in messages:
+        usage = getattr(msg, "usage_metadata", None)
+        if not usage:
+            continue
+        prompt_tokens     += usage.get("input_tokens",  0)
+        completion_tokens += usage.get("output_tokens", 0)
+        total_tokens      += usage.get("total_tokens",  0)
+
+    return {
+        "prompt_tokens":     prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens":      total_tokens,
+    }
+
+
+# ── Async helpers ─────────────────────────────────────────────────────────────
+
+async def run_research_agent(product_details: dict, config: RunnableConfig | None = None) -> tuple[str, dict]:
     message = HumanMessage(content=json.dumps(product_details))
     try:
-        response = await research_agent.ainvoke({"messages": [message]})
-        return response["messages"][-1].content
+        response = await research_agent.ainvoke(
+            {"messages": [message]},
+            config=config,
+        )
+        usage = _extract_usage_from_messages(response["messages"])
+        return response["messages"][-1].content, usage
     except Exception as e:
         raise RuntimeError(f"Research agent failed: {e}") from e
 
 
-async def run_serp_agent(research_output: str, product_details: dict) -> dict:
-    """Returns parsed JSON dict from the SERP agent."""
-    payload = json.dumps({
-        "product_details": product_details,
-        "research":        research_output,
-    })
+async def run_serp_agent(research_output: str, product_details: dict, config: RunnableConfig | None = None) -> tuple[str, dict]:
+    payload = json.dumps({"product_details": product_details, "research": research_output})
     try:
-        response = await serp_agent.ainvoke({"messages": [HumanMessage(content=payload)]})
-        raw      = response["messages"][-1].content
-        return raw
-        # return _safe_parse_json(raw, agent="serp_agent")
+        response = await serp_agent.ainvoke(
+            {"messages": [HumanMessage(content=payload)]},
+            config=config,
+        )
+        usage = _extract_usage_from_messages(response["messages"])
+        return response["messages"][-1].content, usage
     except Exception as e:
         raise RuntimeError(f"SERP agent failed: {e}") from e
 
 
-async def run_writer_agent(serp_output: dict, product_details: dict) -> dict:
-    """Returns parsed JSON dict from the writer agent."""
-    payload = json.dumps({
-        "product_details": product_details,
-        "serp_brief":      serp_output,
-    })
+async def run_writer_agent(
+    serp_output: dict,
+    product_details: dict,
+    config: RunnableConfig | None = None,
+    system_prompt_override: str | None = None,
+) -> tuple[str, dict]:
+    payload = json.dumps({"product_details": product_details, "serp_brief": serp_output})
     try:
-        response = await writer_agent.ainvoke({"messages": [HumanMessage(content=payload)]})
-        raw      = response["messages"][-1].content
-        return raw
-        # return _safe_parse_json(raw, agent="writer_agent")
+        response = await writer_agent.ainvoke(
+            {"messages": [HumanMessage(content=payload)]},
+            config=config,
+        )
+        usage = _extract_usage_from_messages(response["messages"])
+        return response["messages"][-1].content, usage
     except Exception as e:
         raise RuntimeError(f"Writer agent failed: {e}") from e

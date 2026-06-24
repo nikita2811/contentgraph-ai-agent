@@ -39,6 +39,13 @@ def cache_set(key: str, value, ttl: int = 3600):
 
 
 # ── Node-level cache ───────────────────────────────────────
+# ── Pipeline-level cache ───────────────────────────────────
+
+# Only hash fields that define the product identity
+_PIPELINE_CACHE_FIELDS = [
+    "product_name", "category", "target_audience", "key_features", "tone"
+]
+
 def get_node_cache(node_name: str, prompt: str):
     key = make_key(f"node:{node_name}", prompt)
     val = cache_get(key)
@@ -47,14 +54,15 @@ def get_node_cache(node_name: str, prompt: str):
     else:
         print(f"❌ Node cache MISS [{node_name}]")
     return val, key
-
 def set_node_cache(key: str, output, ttl: int = 3600):
     cache_set(key, output, ttl)
 
 
+
 # ── Pipeline-level cache ───────────────────────────────────
 def get_pipeline_cache(product_details: dict):
-    key = make_key("pipeline", product_details)
+    stable = {k: product_details[k] for k in _PIPELINE_CACHE_FIELDS if k in product_details}
+    key = make_key("pipeline", stable)
     val = cache_get(key)
     if val:
         print(f"⚡ Pipeline cache HIT  — key: {key}")
@@ -67,6 +75,7 @@ def set_pipeline_cache(key: str, final_state: dict, ttl: int = 3600):
         "research_output": final_state.get("research_output"),
         "serp_output":     final_state.get("serp_output"),
         "content_output":  final_state.get("content_output"),
+        "token_usage":     final_state.get("token_usage", {}),
         "current_step":    final_state.get("current_step"),
         "error":           final_state.get("error"),
     }

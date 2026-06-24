@@ -59,26 +59,108 @@ def health_check():
 @app.post("/generate", response_model=PipelineResponse, dependencies=[Depends(verify_service_token)])
 async def generate(req: ProductRequest):
     product_details = req.model_dump()
+    
 
     try:
-        token_callback = TokenUsageCallback()
-        result = await run_pipeline(product_details,callbacks=[token_callback])
-       
+        
+        
+        result = await run_pipeline(product_details)
         content = result.get("content_output") or ""
         serp = result.get("serp_output") or ""
 
+
+        final_content = content if isinstance(content, str) else json.dumps(content),
+        ai_serp = serp if isinstance(serp, str) else json.dumps(serp),
+
+      
+
+        # fetchone() returns tuple
+        if isinstance(final_content, tuple):
+            final_content = final_content[0]
+        
+        # JSON string -> Python object
+        if isinstance(final_content, str):
+            content_list = json.loads(final_content)
+        else:
+            content_list = final_content
+        
+        print(type(content_list))
+        print(content_list)
+        
+        content_text = next(
+            (
+                block["text"]
+                for block in content_list
+                if isinstance(block, dict)
+                and block.get("type") == "text"
+            ),
+            None
+        )
+        
+        if not content_text:
+            raise ValueError("No text block found in final_content")
+        
+        content_text = (
+            content_text
+            .strip()
+            .removeprefix("```json")
+            .removesuffix("```")
+            .strip()
+        )
+        
+        ai_content = json.loads(content_text)
+        
+
+        # Handle tuple returned from DB/fetchone()
+        if isinstance(ai_serp, tuple):
+            ai_serp = ai_serp[0]
+        
+        # Parse JSON string
+        if isinstance(ai_serp, str):
+            serp_raw = json.loads(ai_serp)
+        else:
+            serp_raw = ai_serp
+        
+        # Extract text block
+        serp_text = next(
+            (
+                block["text"]
+                for block in serp_raw
+                if isinstance(block, dict)
+                and block.get("type") == "text"
+            ),
+            None
+        )
+        
+        if not serp_text:
+            raise ValueError("No text block found in serp")
+        
+        # Remove markdown fences if present
+        serp_text = (
+            serp_text
+            .strip()
+            .removeprefix("```json")
+            .removesuffix("```")
+            .strip()
+        )
+        
+        # Convert AI JSON string to Python dict
+        serp_final = json.loads(serp_text)
+
+
         return JSONResponse(content={
             "product_name":  product_details.get("product_name", ""),
-            "final_content": content if isinstance(content, str) else json.dumps(content),
-            "serp":          serp if isinstance(serp, str) else json.dumps(serp),
+            "seo_title": ai_content["seo_title"],
+            "meta_description": ai_content["meta_description"],
+            "meta_title": ai_content["h1"],
+            "intro_paragraph": ai_content["intro_paragraph"],
+            "tags": ai_content["tags"] if isinstance(ai_content["tags"], list) else ai_content["tags"].split(","),
+            "primary_keyword": serp_final["primary_keyword"],
+            "secondary_keyword": ",".join(serp_final["secondary_keywords"]) if isinstance(serp_final["secondary_keywords"], list) else serp["secondary_keywords"],
             "status":        "success",
+            "token_usage":   result.get("token_usage", {}),
            
-            "token_usage": {
-              "prompt_tokens":     token_callback.prompt_tokens,
-              "completion_tokens": token_callback.completion_tokens,
-              "total_tokens":      token_callback.total_tokens,
-              "model_name":        token_callback.model_name,
-            }
+           
         })
 
 

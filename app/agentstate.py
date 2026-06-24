@@ -19,6 +19,8 @@ from .cache import (
 from .memory.research_cache import get_similar_research, store_research
 from app.validators.nli_validator import validate_content_against_research
 import asyncio
+from langchain_core.runnables import RunnableConfig
+
 
 
 # ── State ─────────────────────────────────────────────────────────────────────
@@ -37,6 +39,8 @@ class AgentState(TypedDict):
     serp_output:      Optional[str]
     content_output:   Optional[str]
 
+    token_usage:      dict 
+
     # NLI / rewrite
     nli_result:       Optional[dict]
     retry_count:      int
@@ -46,14 +50,22 @@ class AgentState(TypedDict):
     current_step:     str
     error:            Optional[str]
 
+   
 
+
+def _merge_usage(existing: dict, new: dict) -> dict:
+    return {
+        "prompt_tokens":     existing.get("prompt_tokens",     0) + new.get("prompt_tokens",     0),
+        "completion_tokens": existing.get("completion_tokens", 0) + new.get("completion_tokens", 0),
+        "total_tokens":      existing.get("total_tokens",      0) + new.get("total_tokens",      0),
+    }
 # ── Node 1: Research ──────────────────────────────────────────────────────────
 
 @traceable(
     name="research_node",
     metadata={"pipeline": "contentgraph", "node": "research"},
 )
-async def run_research(state: AgentState) -> AgentState:
+async def run_research(state: AgentState,config: RunnableConfig) -> AgentState:
     """Node 1 — Deep research via Tavily."""
     print("\n🔍 [Research Agent] Starting...")
 
@@ -97,15 +109,16 @@ async def run_research(state: AgentState) -> AgentState:
         _, cache_key = get_node_cache("research", prompt)  # key only, no hit
 
     try:
-        output = await run_research_agent(product_details)
+        output, usage = await run_research_agent(product_details, config=config)
         print(f"✅ Research complete ({len(output)} chars)")
-
-        set_node_cache(cache_key, {"output": output}, ttl=86400)
+        if not state.get("regenerate"):
+           set_node_cache(cache_key, {"output": output}, ttl=86400)
 
         return {
             **state,
             "research_output": output,
             "current_step":    "serp_analysis",
+            "token_usage":     _merge_usage(state.get("token_usage") or {}, usage), 
             "error":           None,
             "messages":        [AIMessage(content=f"[Research Agent]\n{output}")],
         }
@@ -127,7 +140,7 @@ async def run_research(state: AgentState) -> AgentState:
     name="serp_node",
     metadata={"pipeline": "contentgraph", "node": "serp"},
 )
-async def run_serp_analysis(state: AgentState) -> AgentState:
+async def run_serp_analysis(state: AgentState, config: RunnableConfig) -> AgentState:
     """Node 2 — SERP analysis via SerpAPI + Tavily."""
     print("\n📊 [SERP Agent] Starting...")
 
@@ -177,19 +190,21 @@ async def run_serp_analysis(state: AgentState) -> AgentState:
             "product_name": state["product_name"],
             "category":     state["category"],
         }
-        output = await run_serp_agent(
+        output,usage = await run_serp_agent(
             research_output=state.get("research_output", ""),
             product_details=product_details,
+            config=config
         )
         # ── 4. Store to vector DB ─────────────────────────
         await store_serp_to_vector(product_details, output)
-
-        set_node_cache(cache_key, {"output": output}, ttl=3600)
+        if not state.get("regenerate"):
+           set_node_cache(cache_key, {"output": output}, ttl=3600)
 
         return {
             **state,
             "serp_output":  output,
             "current_step": "writing",
+            "token_usage":     _merge_usage(state.get("token_usage") or {}, usage), 
             "error":        None,
             "messages":     [AIMessage(content=f"[SERP Agent]\n{json.dumps(output)}")],
         }
@@ -221,7 +236,7 @@ async def store_serp_to_vector(product_details: dict, output: dict):
     name="writer_node",
     metadata={"pipeline": "contentgraph", "node": "writer"},
 )
-async def run_writer(state: AgentState) -> AgentState:
+async def run_writer(state: AgentState, config: RunnableConfig) -> AgentState:
     """Node 3 — Content generation."""
     print("\n✍️  [Writer Agent] Starting...")
 
@@ -260,17 +275,19 @@ async def run_writer(state: AgentState) -> AgentState:
             "key_features":    state["key_features"],
             "tone":            state["tone"],
         }
-        output = await run_writer_agent(
+        output,usage = await run_writer_agent(
             serp_output=state.get("serp_output", {}),
             product_details=product_details,
+            config=config
         )
-
-        set_node_cache(cache_key, {"output": output}, ttl=86400)
+        if not state.get("regenerate"):
+            set_node_cache(cache_key, {"output": output}, ttl=86400)
 
         return {
             **state,
             "content_output": output,
             "current_step":   "done",
+            "token_usage":     _merge_usage(state.get("token_usage") or {}, usage), 
             "error":          None,
             "messages":       [AIMessage(content=f"[Writer Agent]\n{json.dumps(output)}")],
         }
@@ -292,18 +309,33 @@ async def validate_node(state: AgentState) -> AgentState:
     """NLI DeBERTa validation node."""
     research = state.get("research_output", "")
     draft = state.get("content_output", "")
- 
-    
+
     if not research or not draft:
-         return {**state, "nli_result": {"passed": True, "details": [], "verdict": "⚠️ Skipped — missing context"}}
+        return {**state, "nli_result": {"passed": True, "details": [], "verdict": "⚠️ Skipped — missing context"}}
+
+    # extract plain text if writer node returns a dict
+    if isinstance(draft, dict):
+        draft = " ".join(filter(None, [
+            draft.get("description", ""),
+            draft.get("meta_description", ""),
+        ]))
+    elif isinstance(draft, list):
+        draft = " ".join(
+            item.get("description", "") if isinstance(item, dict) else str(item)
+            for item in draft
+        )
+
+    if not draft.strip():
+        return {**state, "nli_result": {"passed": True, "details": [], "verdict": "⚠️ Skipped — empty draft"}}
+
     nli_result = await asyncio.get_event_loop().run_in_executor(
-    None,
-    lambda: validate_content_against_research(
-        research=research,
-        generated_content=draft,
-        contradiction_threshold=0.6,
+        None,
+        lambda: validate_content_against_research(
+            research=research,
+            generated_content=draft,
+            contradiction_threshold=0.6,
+        )
     )
-)
     return {**state, "nli_result": nli_result}
 
 
@@ -321,7 +353,7 @@ def should_rewrite(state: AgentState) -> str:
     name="rewrite_node", 
     metadata={"pipeline": "contentgraph", "node": "rewrite"},
 )
-async def run_rewrite(state: AgentState) -> AgentState:
+async def run_rewrite(state: AgentState, config: RunnableConfig) -> AgentState:
     """Node 4 — Rewrite triggered by NLI contradiction failures."""
     print("\n🔄  [Rewrite Agent] Starting...")
 
@@ -376,17 +408,19 @@ async def run_rewrite(state: AgentState) -> AgentState:
             "tone":            state["tone"],
         }
 
-        output = await run_writer_agent(
+        output,usage = await run_writer_agent(
             serp_output=state.get("serp_output", {}),
             product_details=product_details,
-            system_prompt_override=rewrite_prompt,  # ← inject corrections
+            system_prompt_override=rewrite_prompt,
+            config=config  # ← inject corrections
         )
 
         return {
             **state,
             "content_output": output,
             "retry_count":    retry_count + 1,
-            "current_step":   "validate",           # loop back to NLI
+            "current_step":   "validate",  
+            "token_usage":     _merge_usage(state.get("token_usage") or {}, usage),          # loop back to NLI
             "error":          None,
             "messages":       [AIMessage(content=f"[Rewrite Agent - attempt {retry_count + 1}]\n{json.dumps(output)}")],
         }
@@ -483,23 +517,24 @@ def build_pipeline() -> StateGraph:
 
 # ── Public entry point ────────────────────────────────────────────────────────
 
-async def run_pipeline(product_details: dict,callbacks: list = None) -> dict:
+async def run_pipeline(product_details: dict, callbacks: list = None) -> dict:
     """
     Async entry point for the full 3-agent pipeline.
     Call with: await run_pipeline(product_details)
     """
     regenerate = product_details.get("regenerate", False)
-
-    # ── Pipeline cache check ──────────────────────────────
-    if not regenerate:
-        cached, pipe_key = get_pipeline_cache(product_details)
-        if cached:
-            print("⚡ Pipeline cache HIT")
-            return cached
+  
+    if regenerate:
+          print("🔄 Regenerate requested — skipping cache")
+           # key only, no HIT log since it won't be cached yet
     else:
-        print("🔄 Regenerate requested — skipping cache")
-        _, pipe_key = get_pipeline_cache(product_details)
-
+          cached, pipe_key = get_pipeline_cache(product_details)
+          if cached:
+              print("⚡ Pipeline cache HIT")
+              cached.setdefault("token_usage", {})
+              return cached
+          print("❌ Pipeline cache MISS")
+  
     pipeline = build_pipeline()
 
     initial_state: AgentState = {
@@ -517,6 +552,7 @@ async def run_pipeline(product_details: dict,callbacks: list = None) -> dict:
         "messages":        [],
         "current_step":    "research",
         "error":           None,
+        "token_usage":     {},
     }
 
     config = RunnableConfig(
@@ -526,7 +562,7 @@ async def run_pipeline(product_details: dict,callbacks: list = None) -> dict:
             "tone":         product_details.get("tone"),
         },
         run_name=f"pipeline:{product_details.get('product_name', 'unknown')}",
-        callbacks=callbacks or [], 
+        callbacks=callbacks or [],
     )
 
     print(f"\n🚀 Pipeline starting for: '{initial_state['product_name']}'")
