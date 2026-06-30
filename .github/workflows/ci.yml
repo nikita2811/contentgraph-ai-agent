@@ -68,7 +68,7 @@ jobs:
 
       - name: Run evaluation suite
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # Override thresholds for CI (slightly more lenient than prod)
           FAITHFULNESS_THRESHOLD: "0.65"
           RELEVANCY_THRESHOLD: "0.65"
