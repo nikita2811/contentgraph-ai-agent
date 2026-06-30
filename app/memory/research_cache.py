@@ -2,6 +2,7 @@
 import os
 import json
 import hashlib
+from functools import lru_cache
 from typing import Optional
 
 from upstash_vector import Index
@@ -17,9 +18,16 @@ _index = Index(
     token=os.getenv("UPSTASH_VECTOR_REST_TOKEN"),
 )
 
-_embedder = SentenceTransformer("all-MiniLM-L6-v2")
-
 SIMILARITY_THRESHOLD = 0.85
+
+
+@lru_cache(maxsize=1)
+def _get_embedder() -> SentenceTransformer:
+    """
+    Lazy-load the embedding model on first use instead of at import time.
+    Avoids paying the load cost during app startup / health checks.
+    """
+    return SentenceTransformer("all-MiniLM-L6-v2")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -50,7 +58,7 @@ def get_similar_research(product_details: dict) -> Optional[dict]:
     Returns cached research dict if similarity >= threshold, else None.
     """
     query_text = _make_query_text(product_details)
-    embedding  = _embedder.encode(query_text).tolist()
+    embedding  = _get_embedder().encode(query_text).tolist()
 
     try:
         results = _index.query(
@@ -93,7 +101,7 @@ def store_research(product_details: dict, serp_results: dict) -> None:
     Only called after SERP validator has scored and filtered — never stores junk.
     """
     query_text = _make_query_text(product_details)
-    embedding  = _embedder.encode(query_text).tolist()
+    embedding  = _get_embedder().encode(query_text).tolist()
     doc_id     = _make_doc_id(product_details)
 
     try:
