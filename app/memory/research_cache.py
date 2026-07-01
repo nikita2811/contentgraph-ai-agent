@@ -6,7 +6,7 @@ from functools import lru_cache
 from typing import Optional
 
 from upstash_vector import Index
-from sentence_transformers import SentenceTransformer
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -22,12 +22,12 @@ SIMILARITY_THRESHOLD = 0.85
 
 
 @lru_cache(maxsize=1)
-def _get_embedder() -> SentenceTransformer:
-    """
-    Lazy-load the embedding model on first use instead of at import time.
-    Avoids paying the load cost during app startup / health checks.
-    """
-    return SentenceTransformer("all-MiniLM-L6-v2")
+def _get_embedder(text: str) -> list:
+    result = genai.embed_content(
+        model="models/text-embedding-004",
+        content=text
+    )
+    return result["embedding"]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
