@@ -15,7 +15,7 @@ langgraph
 langchain-tavily
 tavily-python
 google-search-results
-keybert
+
 
 # Caching
 upstash-redis>=1.0.0
