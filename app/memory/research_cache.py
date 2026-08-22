@@ -21,7 +21,7 @@ _index = Index(
 SIMILARITY_THRESHOLD = 0.85
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=1024)
 def _get_embedder(text: str) -> list:
     result = genai.embed_content(
         model="models/text-embedding-004",
@@ -58,7 +58,7 @@ def get_similar_research(product_details: dict) -> Optional[dict]:
     Returns cached research dict if similarity >= threshold, else None.
     """
     query_text = _make_query_text(product_details)
-    embedding  = _get_embedder().encode(query_text).tolist()
+    embedding  = _get_embedder(query_text).encode(query_text).tolist()
 
     try:
         results = _index.query(
@@ -101,7 +101,7 @@ def store_research(product_details: dict, serp_results: dict) -> None:
     Only called after SERP validator has scored and filtered — never stores junk.
     """
     query_text = _make_query_text(product_details)
-    embedding  = _get_embedder().encode(query_text).tolist()
+    embedding  = _get_embedder(query_text).encode(query_text).tolist()
     doc_id     = _make_doc_id(product_details)
 
     try:
