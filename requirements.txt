@@ -25,8 +25,7 @@ cryptography>=42.0.0
 python-jose[cryptography]>=3.3.0
 
 upstash-vector
-deepeval
-pytest
-torch>=2.0.0
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.3.0+cpu
 transformers>=4.40.0
 google-genai
