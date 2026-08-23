@@ -526,6 +526,7 @@ async def run_pipeline(product_details: dict, callbacks: list = None) -> dict:
   
     if regenerate:
           print("🔄 Regenerate requested — skipping cache")
+          _, pipe_key = get_pipeline_cache(product_details)
            # key only, no HIT log since it won't be cached yet
     else:
           cached, pipe_key = get_pipeline_cache(product_details)

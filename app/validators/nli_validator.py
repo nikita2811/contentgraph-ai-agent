@@ -13,7 +13,7 @@ def _load_nli_pipeline():
     tokenizer = AutoTokenizer.from_pretrained("cross-encoder/nli-deberta-v3-small")
     model = AutoModelForSequenceClassification.from_pretrained(
         "cross-encoder/nli-deberta-v3-small",
-        torch_dtype=torch.float32 if not torch.cuda.is_available() else torch.float16,
+        dtype=torch.float32 if not torch.cuda.is_available() else torch.float16,
     )
     return pipeline(
         "zero-shot-classification",

@@ -65,12 +65,15 @@ async def generate(req: ProductRequest):
         
         
         result = await run_pipeline(product_details)
+        if result.get("error"):
+           raise ValueError(f"Pipeline failed at step '{result.get('current_step')}': {result['error']}")
+
         content = result.get("content_output") or ""
         serp = result.get("serp_output") or ""
 
 
-        final_content = content if isinstance(content, str) else json.dumps(content),
-        ai_serp = serp if isinstance(serp, str) else json.dumps(serp),
+        final_content = content if isinstance(content, str) else json.dumps(content)
+        ai_serp = serp if isinstance(serp, str) else json.dumps(serp)
 
       
 
@@ -84,8 +87,7 @@ async def generate(req: ProductRequest):
         else:
             content_list = final_content
         
-        print(type(content_list))
-        print(content_list)
+       
         
         content_text = next(
             (
@@ -165,6 +167,7 @@ async def generate(req: ProductRequest):
 
 
     except Exception as e:
+        print(e)
         raise HTTPException(
             status_code=500,
              detail={
