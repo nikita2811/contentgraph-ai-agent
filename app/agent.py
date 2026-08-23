@@ -6,6 +6,7 @@ from langgraph.prebuilt import create_react_agent
 from dotenv import load_dotenv
 from .tools import tavily_tool, serp_search, analyze_product_serp
 from langchain_core.runnables import RunnableConfig
+
 load_dotenv()
 
 
@@ -13,7 +14,7 @@ load_dotenv()
 
 def _build_llm() -> ChatGoogleGenerativeAI:
     api_key = os.getenv("GOOGLE_API_KEY")
-    model   = os.getenv("GEMINI_MODEL","gemini-1.5-flash")
+    model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY is not set")
     return ChatGoogleGenerativeAI(
@@ -22,6 +23,7 @@ def _build_llm() -> ChatGoogleGenerativeAI:
         temperature=0,
         streaming=False,
     )
+
 
 llm = _build_llm()
 
@@ -115,34 +117,29 @@ def _safe_parse_json(raw: str, agent: str) -> dict:
         ) from e
 
 
-# ── Async helpers (imported by agentstate.py) ─────────────────────────────────
-
-# agent.py
-
-
-  # ── Usage extractor ───────────────────────────────────────────────────────────
+# ── Usage extractor ─────────────────────────────────────────────────────────
 
 def _extract_usage_from_messages(messages: list) -> dict:
-    prompt_tokens     = 0
+    prompt_tokens = 0
     completion_tokens = 0
-    total_tokens      = 0
+    total_tokens = 0
 
     for msg in messages:
         usage = getattr(msg, "usage_metadata", None)
         if not usage:
             continue
-        prompt_tokens     += usage.get("input_tokens",  0)
+        prompt_tokens += usage.get("input_tokens", 0)
         completion_tokens += usage.get("output_tokens", 0)
-        total_tokens      += usage.get("total_tokens",  0)
+        total_tokens += usage.get("total_tokens", 0)
 
     return {
-        "prompt_tokens":     prompt_tokens,
+        "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
-        "total_tokens":      total_tokens,
+        "total_tokens": total_tokens,
     }
 
 
-# ── Async helpers ─────────────────────────────────────────────────────────────
+# ── Async helpers (imported by agentstate.py) ────────────────────────────────
 
 async def run_research_agent(product_details: dict, config: RunnableConfig | None = None) -> tuple[str, dict]:
     message = HumanMessage(content=json.dumps(product_details))
@@ -152,7 +149,8 @@ async def run_research_agent(product_details: dict, config: RunnableConfig | Non
             config=config,
         )
         usage = _extract_usage_from_messages(response["messages"])
-        return response["messages"][-1].content, usage
+        raw_text = response["messages"][-1].content
+        return json.dumps([{"type": "text", "text": raw_text}]), usage
     except Exception as e:
         raise RuntimeError(f"Research agent failed: {e}") from e
 
@@ -165,7 +163,8 @@ async def run_serp_agent(research_output: str, product_details: dict, config: Ru
             config=config,
         )
         usage = _extract_usage_from_messages(response["messages"])
-        return response["messages"][-1].content, usage
+        raw_text = response["messages"][-1].content
+        return json.dumps([{"type": "text", "text": raw_text}]), usage
     except Exception as e:
         raise RuntimeError(f"SERP agent failed: {e}") from e
 
@@ -178,11 +177,15 @@ async def run_writer_agent(
 ) -> tuple[str, dict]:
     payload = json.dumps({"product_details": product_details, "serp_brief": serp_output})
     try:
+        messages = [HumanMessage(content=payload)]
+        if system_prompt_override:
+            messages = [SystemMessage(content=system_prompt_override)] + messages
         response = await writer_agent.ainvoke(
-            {"messages": [HumanMessage(content=payload)]},
+            {"messages": messages},
             config=config,
         )
         usage = _extract_usage_from_messages(response["messages"])
-        return response["messages"][-1].content, usage
+        raw_text = response["messages"][-1].content
+        return json.dumps([{"type": "text", "text": raw_text}]), usage
     except Exception as e:
         raise RuntimeError(f"Writer agent failed: {e}") from e

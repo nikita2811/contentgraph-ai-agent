@@ -1,7 +1,6 @@
 fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 python-dotenv>=1.0.0
-google-generativeai
 pydantic>=2.0.0
 
 # LangChain ecosystem
@@ -30,3 +29,4 @@ deepeval
 pytest
 torch>=2.0.0
 transformers>=4.40.0
+google-genai

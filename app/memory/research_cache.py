@@ -6,8 +6,9 @@ from functools import lru_cache
 from typing import Optional
 
 from upstash_vector import Index
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
+from google.genai import types
 
 load_dotenv()
 
@@ -18,25 +19,36 @@ _index = Index(
     token=os.getenv("UPSTASH_VECTOR_REST_TOKEN"),
 )
 
+_client = None
+
+def _get_client() -> genai.Client:
+    global _client
+    if _client is None:
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise RuntimeError("GOOGLE_API_KEY is not set")
+        _client = genai.Client(api_key=api_key)
+    return _client
+
+
 SIMILARITY_THRESHOLD = 0.85
 
 
 @lru_cache(maxsize=1024)
-def _get_embedder(text: str) -> list:
-    result = genai.embed_content(
-        model="models/text-embedding-004",
-        content=text
+def _get_embedder(text: str) -> tuple:
+    """Returns the embedding vector for `text` as a tuple (hashable, cacheable)."""
+    client = _get_client()
+    result = client.models.embed_content(
+        model="gemini-embedding-001",
+        contents=text,
+        config=types.EmbedContentConfig(output_dimensionality=768),
     )
-    return result["embedding"]
+    return tuple(result.embeddings[0].values)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_query_text(product_details: dict) -> str:
-    """
-    Combines product fields into a single string for embedding.
-    More fields = better semantic matching.
-    """
     return (
         f"{product_details.get('product_name', '')} "
         f"{product_details.get('category', '')} "
@@ -46,37 +58,31 @@ def _make_query_text(product_details: dict) -> str:
 
 
 def _make_doc_id(product_details: dict) -> str:
-    """Stable unique ID — used for upsert deduplication."""
     return hashlib.md5(_make_query_text(product_details).encode()).hexdigest()
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def get_similar_research(product_details: dict) -> Optional[dict]:
-    """
-    Query Upstash Vector for semantically similar cached SERP results.
-    Returns cached research dict if similarity >= threshold, else None.
-    """
     query_text = _make_query_text(product_details)
-    embedding  = _get_embedder(query_text).encode(query_text).tolist()
+    embedding = list(_get_embedder(query_text))   # ← no .encode(), just use it directly
 
     try:
         results = _index.query(
             vector=embedding,
             top_k=1,
             include_metadata=True,
-            include_data=True,       # ← returns the stored JSON string
+            include_data=True,
         )
     except Exception as e:
-        # network error or empty index — treat as cache miss, never crash
         print(f"⚠️  [Research Cache] Query failed: {e}")
         return None
 
     if not results:
         return None
 
-    top    = results[0]
-    score  = top.score   # cosine similarity, 0–1
+    top = results[0]
+    score = top.score
 
     if score < SIMILARITY_THRESHOLD:
         print(f"🔍 [Research Cache] MISS — best similarity: {score:.3f}")
@@ -90,41 +96,34 @@ def get_similar_research(product_details: dict) -> Optional[dict]:
     try:
         return json.loads(top.data)
     except (json.JSONDecodeError, TypeError):
-        # corrupted entry — treat as miss
         print("⚠️  [Research Cache] Corrupted entry, treating as miss")
         return None
 
 
 def store_research(product_details: dict, serp_results: dict) -> None:
-    """
-    Store SERP results in Upstash Vector.
-    Only called after SERP validator has scored and filtered — never stores junk.
-    """
     query_text = _make_query_text(product_details)
-    embedding  = _get_embedder(query_text).encode(query_text).tolist()
-    doc_id     = _make_doc_id(product_details)
+    embedding = list(_get_embedder(query_text))   # ← no .encode(), just use it directly
+    doc_id = _make_doc_id(product_details)
 
     try:
         _index.upsert(
             vectors=[{
-                "id":       doc_id,
-                "vector":   embedding,
-                "data":     json.dumps(serp_results),   # stored as-is, retrieved in query
+                "id": doc_id,
+                "vector": embedding,
+                "data": json.dumps(serp_results),
                 "metadata": {
                     "product_name": product_details.get("product_name", ""),
-                    "category":     product_details.get("category", ""),
-                    "tone":         product_details.get("tone", ""),
+                    "category": product_details.get("category", ""),
+                    "tone": product_details.get("tone", ""),
                 },
             }]
         )
         print(f"💾 [Research Cache] Stored: '{product_details.get('product_name')}'")
     except Exception as e:
-        # storage failure should never crash the pipeline
         print(f"⚠️  [Research Cache] Store failed (non-fatal): {e}")
 
 
 def delete_research(product_details: dict) -> None:
-    """Delete a specific entry — useful for cache invalidation."""
     doc_id = _make_doc_id(product_details)
     try:
         _index.delete(ids=[doc_id])
@@ -134,7 +133,6 @@ def delete_research(product_details: dict) -> None:
 
 
 def clear_research_cache() -> None:
-    """Wipe entire index — use carefully, mainly for testing."""
     try:
         _index.reset()
         print("🗑️  [Research Cache] Cleared all entries")
