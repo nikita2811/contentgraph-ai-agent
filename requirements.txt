@@ -1,31 +1,28 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
+
 fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 python-dotenv>=1.0.0
 pydantic>=2.0.0
 
-# LangChain ecosystem
 langchain
 langchain-google-genai
 langchain-community
 langchain-core
 langgraph
 
-# Tools
 langchain-tavily
 tavily-python
 google-search-results
 
-
-# Caching
 upstash-redis>=1.0.0
 
-# Auth
 pyjwt>=2.8.0
 cryptography>=42.0.0
 python-jose[cryptography]>=3.3.0
 
 upstash-vector
-torch==2.3.0+cpu
-transformers>=4.40.0
 google-genai
+
+torch==2.5.1
+transformers>=4.40.0
