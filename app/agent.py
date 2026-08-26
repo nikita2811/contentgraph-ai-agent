@@ -1,20 +1,25 @@
-import os
+import asyncio
 import json
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.prebuilt import create_react_agent
+import os
+
 from dotenv import load_dotenv
-from .tools import tavily_tool, serp_search, analyze_product_serp
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.prebuilt import create_react_agent
+
+from .tools import tavily_search_async, analyze_product_serp
 
 load_dotenv()
+
+LLM_TIMEOUT_SECONDS = 20
 
 
 # ── LLM ───────────────────────────────────────────────────────────────────────
 
-def _build_llm() -> ChatGoogleGenerativeAI:
+def _build_llm(model_override: str | None = None) -> ChatGoogleGenerativeAI:
     api_key = os.getenv("GOOGLE_API_KEY")
-    model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    model = model_override or os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY is not set")
     return ChatGoogleGenerativeAI(
@@ -26,32 +31,26 @@ def _build_llm() -> ChatGoogleGenerativeAI:
 
 
 llm = _build_llm()
+# Deterministic extraction/formatting stages don't need the heavier model —
+# point this at a faster tier once you've confirmed current Gemini flash
+# naming/availability.
+llm_fast = _build_llm(model_override=os.getenv("GEMINI_MODEL_FAST", os.getenv("GEMINI_MODEL", "gemini-1.5-flash")))
 
 
-# ── Agent 1: Research ─────────────────────────────────────────────────────────
+# ── Prompts (module-level constants — built once, reused across calls) ────
 
-research_agent = create_react_agent(
-    model=llm,
-    tools=[tavily_tool],
-    prompt=SystemMessage(content=(
-        "TASK: Competitor Analysis via Tavily search.\n"
-        "OBJECTIVE: Identify 5 top-rated/most-reviewed competitors based on provided profile.\n"
-        "SEARCH STRATEGY: Combine product_name + target_audience + key_features for high-intent queries.\n"
-        "OUTPUT SCHEMA (Strict):\n"
-        "1. [Brand] | Rating: [X/5] ([N] reviews) | Price: [$] | Buy: [Link]\n"
-        "   - Features: [List 3 key features]\n"
-        "ANALYSIS: Concise comparison vs User Product + 1 Best Pick recommendation.\n"
-        "TONE: Professional. No conversational filler."
-    )),
-)
+RESEARCH_SYSTEM_MESSAGE = SystemMessage(content=(
+    "TASK: Competitor Analysis via Tavily search.\n"
+    "OBJECTIVE: Identify 5 top-rated/most-reviewed competitors based on provided profile.\n"
+    "SEARCH STRATEGY: Combine product_name + target_audience + key_features for high-intent queries.\n"
+    "OUTPUT SCHEMA (Strict):\n"
+    "1. [Brand] | Rating: [X/5] ([N] reviews) | Price: [$] | Buy: [Link]\n"
+    "   - Features: [List 3 key features]\n"
+    "ANALYSIS: Concise comparison vs User Product + 1 Best Pick recommendation.\n"
+    "TONE: Professional. No conversational filler."
+))
 
-
-# ── Agent 2: SERP ─────────────────────────────────────────────────────────────
-
-serp_agent = create_react_agent(
-    model=llm,
-    tools=[serp_search, analyze_product_serp],
-    prompt=SystemMessage(content="""TASK: SEO/SERP Intelligence Extraction.
+SERP_SYSTEM_MESSAGE = SystemMessage(content="""TASK: SEO/SERP Intelligence Extraction.
 INPUT: Research Data + SERP Results.
 OUTPUT: Valid JSON ONLY. No markdown. No prose. No backticks.
 
@@ -67,16 +66,9 @@ SCHEMA:
 }
 
 INSTRUCTION: Parse input to populate schema. Focus on high-volume search intent and commercial competition. If a field is missing, use null or [].
-"""),
-)
+""")
 
-
-# ── Agent 3: Writer ───────────────────────────────────────────────────────────
-
-writer_agent = create_react_agent(
-    model=llm,
-    tools=[],
-    prompt=SystemMessage(content="""TASK: SEO Content Generation.
+WRITER_SYSTEM_MESSAGE = SystemMessage(content="""TASK: SEO Content Generation.
 INPUT: SERP Brief JSON.
 OUTPUT: Valid JSON ONLY. No markdown. No prose. No backticks.
 
@@ -94,7 +86,16 @@ SCHEMA:
 }
 
 INSTRUCTION: Generate professional, high-conversion SEO copy based on the provided SERP brief. Ensure product_roundup reflects competitive analysis accurately. Strictly follow the JSON schema.
-"""),
+""")
+
+
+# ── Agent 1: Research — kept as ReAct, since query count/strategy is genuinely
+#    open-ended (not a fixed tool sequence like stages 2 and 3) ────────────
+
+research_agent = create_react_agent(
+    model=llm,
+    tools=[tavily_search_async],
+    prompt=RESEARCH_SYSTEM_MESSAGE,
 )
 
 
@@ -143,30 +144,53 @@ def _extract_usage_from_messages(messages: list) -> dict:
 
 async def run_research_agent(product_details: dict, config: RunnableConfig | None = None) -> tuple[str, dict]:
     message = HumanMessage(content=json.dumps(product_details))
+    merged_config = {**(config or {}), "recursion_limit": 6}
     try:
-        response = await research_agent.ainvoke(
-            {"messages": [message]},
-            config=config,
+        response = await asyncio.wait_for(
+            research_agent.ainvoke({"messages": [message]}, config=merged_config),
+            timeout=LLM_TIMEOUT_SECONDS * 2,  # ReAct loop — allow room for tool round-trips
         )
-        usage = _extract_usage_from_messages(response["messages"])
-        raw_text = response["messages"][-1].content
-        return json.dumps([{"type": "text", "text": raw_text}]), usage
     except Exception as e:
         raise RuntimeError(f"Research agent failed: {e}") from e
 
+    usage = _extract_usage_from_messages(response["messages"])
+    raw_text = response["messages"][-1].content
+    return raw_text, usage
 
-async def run_serp_agent(research_output: str, product_details: dict, config: RunnableConfig | None = None) -> tuple[str, dict]:
-    payload = json.dumps({"product_details": product_details, "research": research_output})
+
+async def run_serp_agent(
+    research_output: str,
+    product_details: dict,
+    config: RunnableConfig | None = None,
+) -> tuple[dict, dict]:
+    """
+    Direct tool call + single completion — no ReAct loop. The tool to call
+    (analyze_product_serp, on the primary product name) is known in advance,
+    so there's no decision for the model to make here.
+    """
+    serp_data = await analyze_product_serp.ainvoke(
+        {"query": product_details.get("product_name", "")}
+    )
+    payload = json.dumps({
+        "product_details": product_details,
+        "research": research_output,
+        "serp_data": serp_data,
+    })
+
     try:
-        response = await serp_agent.ainvoke(
-            {"messages": [HumanMessage(content=payload)]},
-            config=config,
+        response = await asyncio.wait_for(
+            llm_fast.ainvoke(
+                [SERP_SYSTEM_MESSAGE, HumanMessage(content=payload)],
+                config=config,
+            ),
+            timeout=LLM_TIMEOUT_SECONDS,
         )
-        usage = _extract_usage_from_messages(response["messages"])
-        raw_text = response["messages"][-1].content
-        return json.dumps([{"type": "text", "text": raw_text}]), usage
     except Exception as e:
         raise RuntimeError(f"SERP agent failed: {e}") from e
+
+    usage = _extract_usage_from_messages([response])
+    parsed = _safe_parse_json(response.content, "serp_agent")
+    return parsed, usage
 
 
 async def run_writer_agent(
@@ -174,18 +198,30 @@ async def run_writer_agent(
     product_details: dict,
     config: RunnableConfig | None = None,
     system_prompt_override: str | None = None,
-) -> tuple[str, dict]:
+) -> tuple[dict, dict]:
+    """
+    Direct completion — no tools, so no ReAct loop needed. system_prompt_override
+    (used by the rewrite node) fully replaces the schema prompt, same behavior
+    as before.
+    """
     payload = json.dumps({"product_details": product_details, "serp_brief": serp_output})
+    system_msg = (
+        SystemMessage(content=system_prompt_override)
+        if system_prompt_override
+        else WRITER_SYSTEM_MESSAGE
+    )
+
     try:
-        messages = [HumanMessage(content=payload)]
-        if system_prompt_override:
-            messages = [SystemMessage(content=system_prompt_override)] + messages
-        response = await writer_agent.ainvoke(
-            {"messages": messages},
-            config=config,
+        response = await asyncio.wait_for(
+            llm_fast.ainvoke(
+                [system_msg, HumanMessage(content=payload)],
+                config=config,
+            ),
+            timeout=LLM_TIMEOUT_SECONDS,
         )
-        usage = _extract_usage_from_messages(response["messages"])
-        raw_text = response["messages"][-1].content
-        return json.dumps([{"type": "text", "text": raw_text}]), usage
     except Exception as e:
         raise RuntimeError(f"Writer agent failed: {e}") from e
+
+    usage = _extract_usage_from_messages([response])
+    parsed = _safe_parse_json(response.content, "writer_agent")
+    return parsed, usage
