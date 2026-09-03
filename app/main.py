@@ -68,86 +68,23 @@ async def generate(req: ProductRequest):
         if result.get("error"):
            raise ValueError(f"Pipeline failed at step '{result.get('current_step')}': {result['error']}")
 
-        content = result.get("content_output") or ""
-        serp = result.get("serp_output") or ""
-
-
-        final_content = content if isinstance(content, str) else json.dumps(content)
-        ai_serp = serp if isinstance(serp, str) else json.dumps(serp)
-
       
-
-        # fetchone() returns tuple
-        if isinstance(final_content, tuple):
-            final_content = final_content[0]
+        content = result.get("content_output") or {}
+        serp = result.get("serp_output") or {}
+        # Handle tuple returned from DB/fetchone(), just in case
+        if isinstance(content, tuple):
+         content = content[0]
+        if isinstance(serp, tuple):
+            serp = serp[0]
         
-        # JSON string -> Python object
-        if isinstance(final_content, str):
-            content_list = json.loads(final_content)
-        else:
-            content_list = final_content
+        # If somehow still a JSON string, parse it
+        if isinstance(content, str):
+            content = json.loads(content)
+        if isinstance(serp, str):
+            serp = json.loads(serp)
         
-       
-        
-        content_text = next(
-            (
-                block["text"]
-                for block in content_list
-                if isinstance(block, dict)
-                and block.get("type") == "text"
-            ),
-            None
-        )
-        
-        if not content_text:
-            raise ValueError("No text block found in final_content")
-        
-        content_text = (
-            content_text
-            .strip()
-            .removeprefix("```json")
-            .removesuffix("```")
-            .strip()
-        )
-        
-        ai_content = json.loads(content_text)
-        
-
-        # Handle tuple returned from DB/fetchone()
-        if isinstance(ai_serp, tuple):
-            ai_serp = ai_serp[0]
-        
-        # Parse JSON string
-        if isinstance(ai_serp, str):
-            serp_raw = json.loads(ai_serp)
-        else:
-            serp_raw = ai_serp
-        
-        # Extract text block
-        serp_text = next(
-            (
-                block["text"]
-                for block in serp_raw
-                if isinstance(block, dict)
-                and block.get("type") == "text"
-            ),
-            None
-        )
-        
-        if not serp_text:
-            raise ValueError("No text block found in serp")
-        
-        # Remove markdown fences if present
-        serp_text = (
-            serp_text
-            .strip()
-            .removeprefix("```json")
-            .removesuffix("```")
-            .strip()
-        )
-        
-        # Convert AI JSON string to Python dict
-        serp_final = json.loads(serp_text)
+        ai_content = content
+        serp_final = serp
 
 
         return JSONResponse(content={
