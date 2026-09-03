@@ -156,7 +156,7 @@ async def run_research_agent(product_details: dict, config: RunnableConfig | Non
             timeout=LLM_TIMEOUT_SECONDS * 2,  # ReAct loop — allow room for tool round-trips
         )
     except Exception as e:
-        raise RuntimeError(f"Research agent failed: {e}") from e
+        raise RuntimeError(f"Research agent failed: {type(e).__name__}: {e}") from e
 
     usage = _extract_usage_from_messages(response["messages"])
     raw_text = response["messages"][-1].content
@@ -191,7 +191,7 @@ async def run_serp_agent(
             timeout=LLM_TIMEOUT_SECONDS,
         )
     except Exception as e:
-        raise RuntimeError(f"SERP agent failed: {e}") from e
+        raise RuntimeError(f"SERP agent failed: {type(e).__name__}: {e}") from e
 
     usage = _extract_usage_from_messages([response])
     parsed = _safe_parse_json(response.content, "serp_agent")
@@ -225,7 +225,7 @@ async def run_writer_agent(
             timeout=LLM_TIMEOUT_SECONDS,
         )
     except Exception as e:
-        raise RuntimeError(f"Writer agent failed: {e}") from e
+        raise RuntimeError(f"Writer agent failed: {type(e).__name__}: {e}") from e
 
     usage = _extract_usage_from_messages([response])
     parsed = _safe_parse_json(response.content, "writer_agent")
