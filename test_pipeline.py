@@ -39,7 +39,7 @@ async def test():
             "target_audience": "25-40",
             "key_features":    ["insulated", "eco-friendly"],
             "tone":            "professional",
-            "regenerate":      False,
+            "regenerate":      True,
         })
         run_time = time.monotonic() - t1
         print(f"✅ run_pipeline() OK — took {fmt(run_time)}")

@@ -104,14 +104,19 @@ research_agent = create_react_agent(
 def _safe_parse_json(raw: str, agent: str) -> dict:
     """
     Strips markdown fences if the LLM added them despite instructions,
-    then parses JSON. Raises ValueError with context on failure.
+    then parses JSON. Tolerates trailing "extra data" after a valid JSON
+    object (e.g. duplicated output or trailing prose from the model).
+    Raises ValueError with context on failure.
     """
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.split("\n", 1)[-1]
         cleaned = cleaned.rsplit("```", 1)[0].strip()
+
+    decoder = json.JSONDecoder()
     try:
-        return json.loads(cleaned)
+        obj, _ = decoder.raw_decode(cleaned)
+        return obj
     except json.JSONDecodeError as e:
         raise ValueError(
             f"{agent} returned invalid JSON: {e}\nRaw output: {raw[:300]}"
