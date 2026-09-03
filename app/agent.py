@@ -222,7 +222,7 @@ async def run_writer_agent(
                 [system_msg, HumanMessage(content=payload)],
                 config=config,
             ),
-            timeout=LLM_TIMEOUT_SECONDS,
+            timeout=45,
         )
     except Exception as e:
         raise RuntimeError(f"Writer agent failed: {type(e).__name__}: {e}") from e
