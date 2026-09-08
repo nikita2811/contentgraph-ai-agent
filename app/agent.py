@@ -13,7 +13,9 @@ from .tools import tavily_search_async, analyze_product_serp
 load_dotenv()
 
 LLM_TIMEOUT_SECONDS = 45  # was 20 — too tight; real Gemini calls were hitting this
+WRITER_TIMEOUT_SECONDS = 75  # writer payload (serp brief + product details) is larger — needs more headroom
 SERP_LLM_RETRY_ATTEMPTS = 2
+WRITER_LLM_RETRY_ATTEMPTS = 2
 
 
 # ── LLM ───────────────────────────────────────────────────────────────────────
@@ -40,7 +42,13 @@ llm = _build_llm()
 # Deterministic extraction/formatting stages don't need the heavier model —
 # point this at a faster tier once you've confirmed current Gemini flash
 # naming/availability.
-llm_fast = _build_llm(model_override=os.getenv("GEMINI_MODEL_FAST", os.getenv("GEMINI_MODEL", "gemini-1.5-flash")))
+# llm_fast is shared by the SERP and Writer stages — its client-level timeout
+# must cover the larger of the two wait_for() timeouts below, or the SDK's
+# own socket timeout fires first and the outer retry loop never gets a chance.
+llm_fast = _build_llm(
+    model_override=os.getenv("GEMINI_MODEL_FAST", os.getenv("GEMINI_MODEL", "gemini-1.5-flash")),
+    timeout=WRITER_TIMEOUT_SECONDS,
+)
 
 
 # ── Prompts (module-level constants — built once, reused across calls) ────
@@ -240,17 +248,31 @@ async def run_writer_agent(
         if system_prompt_override
         else WRITER_SYSTEM_MESSAGE
     )
+    print(f"✍️  [Writer Agent] payload size: {len(payload)} chars")
 
-    try:
-        response = await asyncio.wait_for(
-            llm_fast.ainvoke(
-                [system_msg, HumanMessage(content=payload)],
-                config=config,
-            ),
-            timeout=45,
-        )
-    except Exception as e:
-        raise RuntimeError(f"Writer agent failed: {type(e).__name__}: {e!r}") from e
+    last_exc: Exception | None = None
+    response = None
+    for attempt in range(1, WRITER_LLM_RETRY_ATTEMPTS + 1):
+        try:
+            response = await asyncio.wait_for(
+                llm_fast.ainvoke(
+                    [system_msg, HumanMessage(content=payload)],
+                    config=config,
+                ),
+                timeout=WRITER_TIMEOUT_SECONDS,
+            )
+            break
+        except asyncio.TimeoutError as e:
+            last_exc = e
+            print(f"⏱️  [Writer Agent] LLM call timed out (attempt {attempt}/{WRITER_LLM_RETRY_ATTEMPTS})")
+        except Exception as e:
+            raise RuntimeError(f"Writer agent failed: {type(e).__name__}: {e!r}") from e
+
+    if response is None:
+        raise RuntimeError(
+            f"Writer agent failed after {WRITER_LLM_RETRY_ATTEMPTS} attempts: "
+            f"{type(last_exc).__name__}: {last_exc!r}"
+        ) from last_exc
 
     usage = _extract_usage_from_messages([response])
     parsed = _safe_parse_json(response.content, "writer_agent")
