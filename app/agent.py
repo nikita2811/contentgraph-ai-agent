@@ -12,12 +12,13 @@ from .tools import tavily_search_async, analyze_product_serp
 
 load_dotenv()
 
-LLM_TIMEOUT_SECONDS = 20
+LLM_TIMEOUT_SECONDS = 45  # was 20 — too tight; real Gemini calls were hitting this
+SERP_LLM_RETRY_ATTEMPTS = 2
 
 
 # ── LLM ───────────────────────────────────────────────────────────────────────
 
-def _build_llm(model_override: str | None = None) -> ChatGoogleGenerativeAI:
+def _build_llm(model_override: str | None = None, timeout: int = LLM_TIMEOUT_SECONDS) -> ChatGoogleGenerativeAI:
     api_key = os.getenv("GOOGLE_API_KEY")
     model = model_override or os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
     if not api_key:
@@ -27,6 +28,11 @@ def _build_llm(model_override: str | None = None) -> ChatGoogleGenerativeAI:
         google_api_key=api_key,
         temperature=0,
         streaming=False,
+        # Client-level timeout on the underlying request — asyncio.wait_for()
+        # alone only cancels *our* await; it doesn't stop the in-flight HTTP
+        # request, so a hang can outlive the outer timeout. This makes the
+        # SDK itself abort the socket after `timeout` seconds.
+        timeout=timeout,
     )
 
 
@@ -156,7 +162,7 @@ async def run_research_agent(product_details: dict, config: RunnableConfig | Non
             timeout=LLM_TIMEOUT_SECONDS * 2,  # ReAct loop — allow room for tool round-trips
         )
     except Exception as e:
-        raise RuntimeError(f"Research agent failed: {type(e).__name__}: {e}") from e
+        raise RuntimeError(f"Research agent failed: {type(e).__name__}: {e!r}") from e
 
     usage = _extract_usage_from_messages(response["messages"])
     raw_text = response["messages"][-1].content
@@ -173,25 +179,44 @@ async def run_serp_agent(
     (analyze_product_serp, on the primary product name) is known in advance,
     so there's no decision for the model to make here.
     """
-    serp_data = await analyze_product_serp.ainvoke(
-        {"query": product_details.get("product_name", "")}
-    )
+    try:
+        serp_data = await analyze_product_serp.ainvoke(
+            {"query": product_details.get("product_name", "")}
+        )
+    except Exception as e:
+        raise RuntimeError(f"SERP tool call failed: {type(e).__name__}: {e!r}") from e
+
     payload = json.dumps({
         "product_details": product_details,
         "research": research_output,
         "serp_data": serp_data,
     })
+    print(f"📊 [SERP Agent] payload size: {len(payload)} chars")
 
-    try:
-        response = await asyncio.wait_for(
-            llm_fast.ainvoke(
-                [SERP_SYSTEM_MESSAGE, HumanMessage(content=payload)],
-                config=config,
-            ),
-            timeout=LLM_TIMEOUT_SECONDS,
-        )
-    except Exception as e:
-        raise RuntimeError(f"SERP agent failed: {type(e).__name__}: {e}") from e
+    last_exc: Exception | None = None
+    response = None
+    for attempt in range(1, SERP_LLM_RETRY_ATTEMPTS + 1):
+        try:
+            response = await asyncio.wait_for(
+                llm_fast.ainvoke(
+                    [SERP_SYSTEM_MESSAGE, HumanMessage(content=payload)],
+                    config=config,
+                ),
+                timeout=LLM_TIMEOUT_SECONDS,
+            )
+            break
+        except asyncio.TimeoutError as e:
+            last_exc = e
+            print(f"⏱️  [SERP Agent] LLM call timed out (attempt {attempt}/{SERP_LLM_RETRY_ATTEMPTS})")
+        except Exception as e:
+            # Non-timeout failures aren't worth retrying — fail fast.
+            raise RuntimeError(f"SERP agent failed: {type(e).__name__}: {e!r}") from e
+
+    if response is None:
+        raise RuntimeError(
+            f"SERP agent failed after {SERP_LLM_RETRY_ATTEMPTS} attempts: "
+            f"{type(last_exc).__name__}: {last_exc!r}"
+        ) from last_exc
 
     usage = _extract_usage_from_messages([response])
     parsed = _safe_parse_json(response.content, "serp_agent")
@@ -225,7 +250,7 @@ async def run_writer_agent(
             timeout=45,
         )
     except Exception as e:
-        raise RuntimeError(f"Writer agent failed: {type(e).__name__}: {e}") from e
+        raise RuntimeError(f"Writer agent failed: {type(e).__name__}: {e!r}") from e
 
     usage = _extract_usage_from_messages([response])
     parsed = _safe_parse_json(response.content, "writer_agent")
