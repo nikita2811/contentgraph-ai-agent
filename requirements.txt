@@ -28,3 +28,4 @@ torch==2.5.1
 transformers>=4.40.0
 
 pytest
+deepeval
