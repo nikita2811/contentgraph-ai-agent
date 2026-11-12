@@ -5,11 +5,12 @@ uvicorn[standard]>=0.29.0
 python-dotenv>=1.0.0
 pydantic>=2.0.0
 
-langchain
-langchain-google-genai
-langchain-community
-langchain-core
-langgraph
+# LangChain family: pinned below 1.0 (deepeval still imports langchain.schema)
+langchain>=0.3,<1.0
+langchain-core>=0.3,<1.0
+langchain-community>=0.3,<1.0
+langchain-google-genai>=2.0,<3.0
+langgraph>=0.2,<1.0
 
 langchain-tavily
 tavily-python
@@ -26,6 +27,3 @@ google-genai
 
 torch==2.5.1
 transformers>=4.40.0
-
-pytest
-deepeval
