@@ -5,25 +5,50 @@ import torch
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 
 logger = logging.getLogger(__name__)
+from functools import lru_cache
+from typing import Literal
+
+Label = Literal["entailment", "neutral", "contradiction"]
+
+NLI_MODEL = "cross-encoder/nli-deberta-v3-small"
 
 
 @lru_cache(maxsize=1)
 def _load_nli_pipeline():
-    """Load once, reuse across requests. Cached at module level."""
-    tokenizer = AutoTokenizer.from_pretrained("cross-encoder/nli-deberta-v3-small")
-    model = AutoModelForSequenceClassification.from_pretrained(
-        "cross-encoder/nli-deberta-v3-small",
-        dtype=torch.float32 if not torch.cuda.is_available() else torch.float16,
+    """Load once on first use, then reuse for every request."""
+    import torch
+    from transformers import (
+        AutoModelForSequenceClassification,
+        AutoTokenizer,
+        pipeline,
     )
+
+    torch.set_num_threads(1)
+
+    tokenizer = AutoTokenizer.from_pretrained(NLI_MODEL)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        NLI_MODEL,
+        dtype=torch.bfloat16,
+        low_cpu_mem_usage=True,
+    ).eval()
+
     return pipeline(
-        "zero-shot-classification",
+        "text-classification",
         model=model,
         tokenizer=tokenizer,
         device=-1,
     )
 
 
-Label = Literal["entailment", "neutral", "contradiction"]
+def nli_label(premise: str, hypothesis: str) -> Label:
+    out = _load_nli_pipeline()(
+        {"text": premise, "text_pair": hypothesis},
+        truncation=True,
+        max_length=512,
+    )
+    if isinstance(out, list):
+        out = out[0]
+    return out["label"].lower()
 
 
 def classify_nli(premise: str, hypothesis: str) -> dict:
